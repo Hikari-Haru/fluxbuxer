@@ -74,12 +74,9 @@ class Jsonfy:
 
 
 class Game:
-    def __init__(self, users=None, weeks=None, week_options=None, winners=None, betting_pool=None):
+    def __init__(self, users=None, weeks=None, winners=None, betting_pool=None):
         self.users = users if users is not None else {} # Dictionary to store users and their points
         self.weeks = weeks if weeks is not None else {} # Dictionary to store weeks and bets
-        self.week_options = week_options if week_options is not None else {} # Dictionary of who you can bet on each week
-        self.winners = winners if winners is not None else {} # Dictionary to store each weeks winner
-        self.betting_pool = betting_pool if betting_pool is not None else {} # dictionary to store overall betting pool
         self.current_week = str(date.today().isocalendar().week)
 
 
@@ -93,11 +90,19 @@ class Game:
         return {
             'users': self.users,
             'weeks': self.weeks,
-            'week_options': self.week_options,
-            'winners': self.winners,
-            'betting_pool': self.betting_pool
         }
     
+    async def setup_week(self, week):
+        if week not in self.weeks:
+            self.weeks[week] = {}
+        if 'options' not in self.weeks[week]:
+            self.weeks[week]['options'] = []
+        if 'result' not in self.weeks[week]:
+            self.weeks[week]['result'] = {}
+        if 'betting_pool' not in self.weeks[week]:
+            self.weeks[week]['betting_pool'] = {}
+        if 'bets' not in self.weeks[week]:
+            self.weeks[week]['bets'] = {}
     
     async def add_user(self, name:str):
         if name not in self.users:
@@ -105,13 +110,11 @@ class Game:
 
 
     async def set_options(self, week:str, option:list):
-        self.week_options[week] = option
-        # Check if a week is set up yet
-        if week not in self.betting_pool:
-            self.betting_pool[week] = {}
-        # Add each user to the week as 0
+        await self.setup_week(week)
+        self.weeks[week]['options'] = option
+        # Add each user to the week as
         for user in option:
-            self.betting_pool[week][user] = 0
+            self.weeks[week]['betting_pool'][user] = 0
         listed_users = '\n'.join("- " + user for user in option)
         return await print_return(f"Set week {week} to:\n{listed_users}")
     
@@ -122,76 +125,81 @@ class Game:
     
 
     async def place_bet(self, week:str, user:str, bet_on:str, points:int):
-        # Check if this week has already finished
-        if week in self.winners:
-            return f"Week {week} has already been ran, you bet on {self.weeks.get(week).get(user).get('bet_on')}"
-        # Check if the user has enough points to bet
-        if self.users.get(user) < points:
-            return f"Not enough fluxbux to bet, you only have {self.users[user]} points"
-        # Check if week exists in weeks dictionary
-        if week not in self.weeks:
-            self.weeks[week] = {}
-        # Check if user exists in weeks dictionary, if they do subtract their old points from the relevant points pool
-        if user not in self.weeks.get(week):
-            self.weeks[week][user] = {'bet_on': '', 'points': 0}
-        else: 
-            old_bet_on = self.weeks.get(week).get(user).get('bet_on')
-            old_points = self.weeks.get(week).get(user).get('points')
-            try:
-                self.betting_pool[week][old_bet_on] -= old_points
-            except Exception:
-                traceback.print_exc()
-        # Update bet
-        self.weeks[week][user]['bet_on'] = bet_on
-        self.weeks[week][user]['points'] = points
+        try:
+            # Setup the weekly dictionary
+            await self.setup_week(week)
+            # Check if this week has already finished
+            if self.weeks.get(week).get('result') != {}:
+                return f"Week {week} has already been ran, you bet on {self.weeks.get(week).get('bets').get(user).get('bet_on')}"
+            # Check if the user has enough points to bet
+            if self.users.get(user) < points:
+                return f"Not enough fluxbux to bet, you only have {self.users[user]} points"
+            # Check if user exists in weeks dictionary, if they do subtract their old points from the relevant points pool
+            if user not in self.weeks.get(week).get('bets'):
+                self.weeks[week]['bets'][user] = {'bet_on': '', 'points': 0}
+            else: 
+                old_bet_on = self.weeks.get(week).get('bets').get(user).get('bet_on')
+                old_points = self.weeks.get(week).get('bets').get(user).get('points')
+                try:
+                    self.weeks[week]["betting_pool"][old_bet_on] -= old_points
+                except Exception:
+                    traceback.print_exc()
+            # Update bet
+            self.weeks[week]['bets'][user]['bet_on'] = bet_on
+            self.weeks[week]['bets'][user]['points'] = points
 
-        # Update betting pool
-        if bet_on not in self.betting_pool.get(week):
-            self.betting_pool[week][bet_on] = points
-        else:
-            self.betting_pool[week][bet_on] += points
+            # Update betting pool
+            if bet_on not in self.weeks.get(week).get("betting_pool"):
+                self.weeks[week]['betting_pool'][bet_on] = points
+            else:
+                self.weeks[week]['betting_pool'][bet_on] += points
 
-        return_string = f"{user} bet {points} fluxbux on {bet_on} for week {week}"
-        return await print_return(return_string)
+            return_string = f"{user} bet {points} fluxbux on {bet_on} for week {week}"
+            return await print_return(return_string)
+        except Exception as e:
+            return (e)
 
 
-    async def update_points(self, week:str, winner:str):
-        total_pool = sum(self.betting_pool.get(week).values())
-        if total_pool == 0: # Check if there's any points put into this week
-            return f"No bets have been made for week {week}"
-        if winner not in self.betting_pool.get(week): # Set winner to have a pool of 0 on them if they don't exist as a precaution
-            self.betting_pool[week][winner] = 0
-        winner_pool = self.betting_pool.get(week).get(winner)
-        outcomes = {}
-        # Check if week exists in weeks dictionary
-        if week in self.weeks:
-            for user, bet in self.weeks.get(week).items():
-                if bet.get('bet_on') == winner:
-                    odds = total_pool / winner_pool
-                    payout = odds * bet['points']
-                    net = payout - bet['points'] # Remove gambled points from the total
-                    self.users[user] += net  # Add points to user
-                    outcomes[user] = {'user': user, 'outcome': "won", 'balance': payout}
-                else:
-                    self.users[user] -= bet['points']  # Subtract points from user
-                    outcomes[user] = {'user': user, 'outcome': "lost", 'balance': bet['points']}
-        return_string = "The outcome of the gamble is:\n"
-        for user, data in outcomes.items():
-            return_string += f"- {data['user']} {data['outcome']} {data['balance']} fluxbux\n"
-        self.winners[week] = {'roll': winner, 'winner_pool': winner_pool, 'total_pool': total_pool, 'lost_fluxbux': total_pool-winner_pool}
-        return await print_return(return_string)
+    async def update_points(self, week:str, roll:str):
+        try:
+            total_pool = sum(self.weeks.get(week).get("betting_pool").values())
+            if total_pool == 0: # Check if there's any points put into this week
+                return f"No bets have been made for week {week}"
+            if roll not in self.weeks.get(week).get("betting_pool"): # Set winner to have a pool of 0 on them if they don't exist as a precaution
+                self.weeks[week]['betting_pool'][roll] = 0
+            winner_pool = self.weeks.get(week).get("betting_pool").get(roll)
+            outcomes = {}
+            # Check if week exists in weeks dictionary
+            if week in self.weeks:
+                for user, bet in self.weeks.get(week).get('bets').items():
+                    if bet.get('bet_on') == roll:
+                        odds = total_pool / winner_pool
+                        payout = odds * bet['points']
+                        net = payout - bet['points'] # Remove gambled points from the total
+                        self.users[user] += net  # Add points to user
+                        outcomes[user] = {'user': user, 'outcome': "won", 'balance': payout}
+                    else:
+                        self.users[user] -= bet['points']  # Subtract points from user
+                        outcomes[user] = {'user': user, 'outcome': "lost", 'balance': bet['points']}
+            return_string = "The outcome of the gamble is:\n"
+            for user, data in outcomes.items():
+                return_string += f"- {data['user']} {data['outcome']} {data['balance']} fluxbux\n"
+            self.weeks[week]['result'] = {'roll': roll, 'winner_pool': winner_pool, 'total_pool': total_pool, 'lost_fluxbux': total_pool-winner_pool}
+            return await print_return(return_string)
+        except Exception as e:
+            return e
 
 
     async def print_status(self, week):
         currency = await string_dict(self.users, listed=True)
-        bets = await string_dict(self.weeks.get(week, {}), bets=True)
+        bets = await string_dict(self.weeks.get(week, {}).get('bets', {}), bets=True)
         return await print_return(f"Current fluxbux listing:\n{currency}\nBets for week {week}:\n{bets}")
 
     
-    async def print_winner(self, week:str):
-        if week not in self.winners:
+    async def print_roll(self, week:str):
+        if self.weeks.get(week, {}).get('result', {}) == {}:
             return await print_return(f"No roll for week {week}")
-        return await print_return(f"The roll for week {week} is:\n{await string_dict(self.winners.get(week, self.current_week), listed=True)}")
+        return await print_return(f"The roll for week {week} is:\n{await string_dict(self.weeks.get(week, self.current_week)['result'], listed=True)}")
 
 
 
@@ -223,7 +231,7 @@ class Commands(discord.Cog, name="Commands"):
         if self.game is None:
             await ctx.interaction.response.defer()
             return []
-        users = self.game.week_options[self.current_week]
+        users = self.game.weeks[self.current_week]["options"]
         return [user for user in users if user.startswith(ctx.value.lower())][:25]
     
 
@@ -299,8 +307,8 @@ class Commands(discord.Cog, name="Commands"):
 
 
     @discord.slash_command(
-        name="winner",
-        description="Start a betting round",
+        name="results",
+        description="Get results for a week",
         guild_ids=GUILDS,
     )
     @discord.option(
@@ -309,11 +317,11 @@ class Commands(discord.Cog, name="Commands"):
         required=False
     )
     @discord.guild_only()
-    async def winner(self, ctx: discord.ApplicationContext, week:str):
+    async def results(self, ctx: discord.ApplicationContext, week:str):
         await ctx.defer()
         if week is None:
             week = self.current_week
-        response = await self.game.print_winner(week)
+        response = await self.game.print_roll(week)
         await ctx.respond(response)
 
 
