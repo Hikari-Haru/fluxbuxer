@@ -74,7 +74,7 @@ class Jsonfy:
 
 
 class Game:
-    def __init__(self, users=None, weeks=None, winners=None, betting_pool=None):
+    def __init__(self, users=None, weeks=None):
         self.users = users if users is not None else {} # Dictionary to store users and their points
         self.weeks = weeks if weeks is not None else {} # Dictionary to store weeks and bets
         self.current_week = str(date.today().isocalendar().week)
