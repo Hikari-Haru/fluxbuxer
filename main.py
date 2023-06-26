@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(".env"))
 GUILDS=["270768834405728258"]
 
-
 async def string_dict(dictionary:dict, listed:bool = False):
     if listed:
         string = '\n'.join([f'- {k}: {v}' for k, v in dictionary.items()])
@@ -20,9 +19,11 @@ async def string_dict(dictionary:dict, listed:bool = False):
         string = ', '.join([f'{k}: {v}' for k, v in dictionary.items()])
     return string
 
+
 async def print_return(statement):
     print(statement)
     return statement
+
 
 class Pickler:
     def __init__(self, game):
@@ -46,9 +47,6 @@ class Pickler:
             except Exception:
                 traceback.print_exc()
 
-
-pickle_queue = asyncio.Queue()
-asyncio.ensure_future(Pickler.process_pickle_queue(pickle_queue, 5, 1))
 
 class Game:
     def __init__(self):
@@ -155,9 +153,7 @@ class Commands(discord.Cog, name="Commands"):
         print("Starting pickle loop")
         while True:
             await asyncio.sleep(15)
-            await self.pickle_queue.put(
-                Pickler(self.game)
-            )
+            await self.pickle_queue.put(Pickler(self.game))
 
     async def bet_on_autocompleter(self, ctx: discord.AutocompleteContext):
         if self.game is None:
@@ -307,7 +303,6 @@ class Commands(discord.Cog, name="Commands"):
         await ctx.respond(response)
 
 
-
 activity = discord.Activity(type=discord.ActivityType.watching, name="Let the fluxbux rain")
 bot = discord.Bot(intents=discord.Intents.all(), command_prefix="!", activity=activity)
 
@@ -315,13 +310,13 @@ bot = discord.Bot(intents=discord.Intents.all(), command_prefix="!", activity=ac
 async def on_ready():
     print(f"We have logged in as {bot.user}")
 
-
 async def main():
+    pickle_queue = asyncio.Queue()
+    asyncio.ensure_future(Pickler.process_pickle_queue(pickle_queue, 5, 1))
     bot.add_cog(Commands(bot, pickle_queue))
     await bot.start(os.getenv("DISCORD_TOKEN"))
 
 
-# Run the bot with a token taken from an environment file.
 def init():
     try:
         asyncio.get_event_loop().run_until_complete(main())
