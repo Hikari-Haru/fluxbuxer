@@ -80,7 +80,7 @@ class Game:
         self.week_options = week_options if week_options is not None else {} # Dictionary of who you can bet on each week
         self.winners = winners if winners is not None else {} # Dictionary to store each weeks winner
         self.betting_pool = betting_pool if betting_pool is not None else {} # dictionary to store overall betting pool
-        self.current_week = date.today().isocalendar().week
+        self.current_week = str(date.today().isocalendar().week)
 
 
     @classmethod
@@ -104,10 +104,14 @@ class Game:
             self.users[name] = 0
 
 
-    async def set_options(self, week:int, option:list):
+    async def set_options(self, week:str, option:list):
         self.week_options[week] = option
+        # Check if a week is set up yet
+        if week not in self.betting_pool:
+            self.betting_pool[week] = {}
+        # Add each user to the week as 0
         for user in option:
-            self.betting_pool[user] = 0
+            self.betting_pool[week][user] = 0
         listed_users = '\n'.join("- " + user for user in option)
         return await print_return(f"Set week {week} to:\n{listed_users}")
     
@@ -117,7 +121,10 @@ class Game:
         return await print_return(f"Gave {points} fluxbux to {user}, they now have {self.users[user]} fluxbux")
     
 
-    async def place_bet(self, week:int, user:str, bet_on:str, points:int):
+    async def place_bet(self, week:str, user:str, bet_on:str, points:int):
+        # Check if this week has already finished
+        if week in self.winners:
+            return f"Week {week} has already been ran, you bet on {self.weeks.get(week).get(user).get('bet_on')}"
         # Check if the user has enough points to bet
         if self.users.get(user) < points:
             return f"Not enough fluxbux to bet, you only have {self.users[user]} points"
@@ -131,33 +138,31 @@ class Game:
             old_bet_on = self.weeks.get(week).get(user).get('bet_on')
             old_points = self.weeks.get(week).get(user).get('points')
             try:
-                self.betting_pool[old_bet_on] -= old_points
+                self.betting_pool[week][old_bet_on] -= old_points
             except Exception:
                 traceback.print_exc()
-        # Check if this week has already finished
-        if week in self.winners:
-            return f"Week {week} has already been ran, you bet on {self.weeks.get(week).get(user).get('bet_on')}"
         # Update bet
         self.weeks[week][user]['bet_on'] = bet_on
         self.weeks[week][user]['points'] = points
 
         # Update betting pool
-        if bet_on not in self.betting_pool:
-            self.betting_pool[bet_on] = points
+        if bet_on not in self.betting_pool.get(week):
+            self.betting_pool[week][bet_on] = points
         else:
-            self.betting_pool[bet_on] += points
+            self.betting_pool[week][bet_on] += points
 
         return_string = f"{user} bet {points} fluxbux on {bet_on} for week {week}"
         return await print_return(return_string)
 
 
-    async def update_points(self, week:int, winner:str):
-        total_pool = sum(self.betting_pool.values())
-        if winner not in self.betting_pool:
-            self.betting_pool[winner] = 0
-        winner_pool = self.betting_pool.get(winner)
+    async def update_points(self, week:str, winner:str):
+        total_pool = sum(self.betting_pool.get(week).values())
+        if total_pool == 0: # Check if there's any points put into this week
+            return f"No bets have been made for week {week}"
+        if winner not in self.betting_pool.get(week): # Set winner to have a pool of 0 on them if they don't exist as a precaution
+            self.betting_pool[week][winner] = 0
+        winner_pool = self.betting_pool.get(week).get(winner)
         outcomes = {}
-        self.winners[week] = {'roll': winner, 'winner_pool': winner_pool, 'total_pool': total_pool, 'lost_fluxbux': total_pool-winner_pool}
         # Check if week exists in weeks dictionary
         if week in self.weeks:
             for user, bet in self.weeks.get(week).items():
@@ -173,6 +178,7 @@ class Game:
         return_string = "The outcome of the gamble is:\n"
         for user, data in outcomes.items():
             return_string += f"- {data['user']} {data['outcome']} {data['balance']} fluxbux\n"
+        self.winners[week] = {'roll': winner, 'winner_pool': winner_pool, 'total_pool': total_pool, 'lost_fluxbux': total_pool-winner_pool}
         return await print_return(return_string)
 
 
@@ -182,7 +188,7 @@ class Game:
         return await print_return(f"Current fluxbux listing:\n{currency}\nBets for week {week}:\n{bets}")
 
     
-    async def print_winner(self, week:int):
+    async def print_winner(self, week:str):
         if week not in self.winners:
             return await print_return(f"No roll for week {week}")
         return await print_return(f"The roll for week {week} is:\n{await string_dict(self.winners.get(week, self.current_week), listed=True)}")
@@ -194,7 +200,7 @@ class Commands(discord.Cog, name="Commands"):
         self.game: Game = None
         self.bot: discord.bot = bot
         self.json_queue = json_queue
-        self.current_week = date.today().isocalendar().week
+        self.current_week = str(date.today().isocalendar().week)
 
     @discord.Cog.listener()
     async def on_ready(self):
@@ -284,7 +290,7 @@ class Commands(discord.Cog, name="Commands"):
         required=False
     )
     @discord.guild_only()
-    async def status(self, ctx: discord.ApplicationContext, week:int):
+    async def status(self, ctx: discord.ApplicationContext, week:str):
         await ctx.defer()
         if week is None:
             week = self.current_week
@@ -303,7 +309,7 @@ class Commands(discord.Cog, name="Commands"):
         required=False
     )
     @discord.guild_only()
-    async def winner(self, ctx: discord.ApplicationContext, week:int):
+    async def winner(self, ctx: discord.ApplicationContext, week:str):
         await ctx.defer()
         if week is None:
             week = self.current_week
