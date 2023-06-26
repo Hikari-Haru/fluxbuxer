@@ -12,7 +12,9 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(".env"))
 
-GUILDS=["270768834405728258"]
+GUILDS=os.getenv("GUILDS")
+GUILDS=GUILDS.split(",") if "," in GUILDS else [GUILDS]
+GUILDS=[int(guild) for guild in GUILDS]
 OPERATOR_ROLE=os.getenv("OPERATOR_ROLE")
 
 async def string_dict(dictionary:dict, listed:bool = False, bets:bool = False):
