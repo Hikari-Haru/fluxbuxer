@@ -5,7 +5,7 @@ import traceback
 import discord
 import json
 import aiofiles
-from typing import Callable
+from typing import Callable, Tuple
 from datetime import date
 from pathlib import Path
 from dotenv import load_dotenv
@@ -20,13 +20,13 @@ OPERATOR_ROLE = os.getenv("OPERATOR_ROLE")
 
 async def string_dict(dictionary: dict, listed: bool = False, bets: bool = False):
     if dictionary == {}:
-        return "- None"
+        return "- **None**"
     if listed:
-        string = "\n".join([f"- {k}: {v}" for k, v in dictionary.items()])
+        string = "\n".join([f"- {k}: **{v}**" for k, v in dictionary.items()])
     elif bets:
         string = "\n".join(
             [
-                f"- {user}: {info['bet_on']} for {info['points']} fluxbux"
+                f"- **{user}** bet on **{info['bet_on']}** for **{info['points']}** fluxbux"
                 for user, info in dictionary.items()
             ]
         )
@@ -44,7 +44,6 @@ def check_operator_roles() -> Callable:
     async def inner(ctx: discord.ApplicationContext):
         if OPERATOR_ROLE == [None]:
             return True
-
         if not any(role.name.lower() in OPERATOR_ROLE for role in ctx.user.roles):
             await ctx.defer(ephemeral=True)
             await ctx.respond(
@@ -112,36 +111,48 @@ class Game:
             self.weeks[week]["betting_pool"] = {}
         if "bets" not in self.weeks[week]:
             self.weeks[week]["bets"] = {}
+        if "claimed" not in self.weeks[week]:
+            self.weeks[week]["claimed"] = {}
 
     async def add_user(self, name: str):
         if name not in self.users:
             self.users[name] = 0
 
-    async def set_options(self, week: str, option: list):
-        await self.setup_week(week)
+    async def set_options(self, week: str, option: list, reset: bool):
         self.weeks[week]["options"] = option
-        # Add each user to the week as
-        for user in option:
-            self.weeks[week]["betting_pool"][user] = 0
+        if reset:
+            self.weeks[week]["betting_pool"] = {}
+            self.weeks[week]["bets"] = {}
+            self.weeks[week]["result"] = {}
         listed_users = "\n".join("- " + user for user in option)
         return await print_return(f"Set week {week} to:\n{listed_users}")
 
-    async def give_points(self, user, points):
-        self.users[user] += points
-        return await print_return(
-            f"Gave {points} fluxbux to {user}, they now have {self.users[user]} fluxbux"
-        )
+    async def give_points(self, user, points, week, button=False):
+        await self.add_user(user)
+        if not button:
+            self.users[user] += points
+            return await print_return(
+                f"Gave {points} fluxbux to {user}, they now have {self.users[user]} fluxbux"
+            )
+        if button:
+            if not self.weeks.get(week).get("claimed").get(user, False):
+                self.weeks[week]["claimed"][user] = True
+                self.users[user] += points
+                return True
+            return False
 
     async def place_bet(self, week: str, user: str, bet_on: str, points: int):
         try:
-            # Setup the weekly dictionary
-            await self.setup_week(week)
+            await self.add_user(user)
             # Check if this week has already finished
             if self.weeks.get(week).get("result") != {}:
                 return f"Week {week} has already been ran, you bet on {self.weeks.get(week).get('bets').get(user).get('bet_on')}"
             # Check if the user has enough points to bet
             if self.users.get(user) < points:
-                return f"Not enough fluxbux to bet, you only have {self.users[user]} points"
+                return f"Not enough fluxbux to bet, you only have {self.users[user]} fluxbux"
+            # Check if bet_on is an option
+            if bet_on not in self.weeks.get(week).get("options", ""):
+                return f"{bet_on} is not a valid user to bet on"
             # Check if user exists in weeks dictionary, if they do subtract their old points from the relevant points pool
             if user not in self.weeks.get(week).get("bets"):
                 self.weeks[week]["bets"][user] = {"bet_on": "", "points": 0}
@@ -162,7 +173,8 @@ class Game:
             else:
                 self.weeks[week]["betting_pool"][bet_on] += points
 
-            return_string = f"{user} bet {points} fluxbux on {bet_on} for week {week}"
+            ratio = await self.get_payout_ratio(points)
+            return_string = f"{user} bet {points} fluxbux on {bet_on} for a {ratio} payout ratio on week {week}"
             return await print_return(return_string)
         except Exception as e:
             return e
@@ -170,58 +182,83 @@ class Game:
     async def update_points(self, week: str, roll: str):
         try:
             if week not in self.weeks:
-                return
-            total_pool = sum(self.weeks.get(week, {}).get("betting_pool", {}).values())
-            if total_pool == 0:  # Check if there's any points put into this week
+                return await print_return("No game set up for this week")
+            betting_pool = sum(
+                self.weeks.get(week, {}).get("betting_pool", {}).values()
+            )
+            winner_pool = self.weeks.get(week).get("betting_pool").get(roll)
+            if betting_pool == 0:
                 return f"No bets have been made for week {week}"
-            if roll not in self.weeks.get(week).get(
-                "betting_pool"
-            ):  # Set winner to have a pool of 0 on them if they don't exist as a precaution
+            if roll not in self.weeks.get(week).get("betting_pool"):
                 self.weeks[week]["betting_pool"][roll] = 0
-            house_comission = total_pool * 0.05  # 5% comission
             if "house" not in self.users:
                 self.users["house"] = 0
-            self.users["house"] += house_comission
-            total_pool -= house_comission
-            winner_pool = self.weeks.get(week).get("betting_pool").get(roll)
+            house_ratio = 0.05
+            house_comission = 0
+            house_loss = 0
+            house_gain = 0
+            incorrect_bets = 0
+            correct_bets = 0
+            payout_total = 0
             outcomes = {}
             # Check if week exists in weeks dictionary
             for user, bet in self.weeks.get(week).get("bets").items():
                 if bet.get("bet_on") == roll:
-                    ratio = self.get_payout_ratio(bet["points"])
-                    payout = ratio * bet["points"]
-                    self.users["house"] -= payout
-                    self.users[user] += payout  # Add points to user
+                    ratio = await self.get_payout_ratio(points=bet["points"])
+                    payout = bet["points"] * ratio
+                    (payout, house_cut) = await self.house_payout(
+                        points=payout, ratio=house_ratio
+                    )
+                    house_comission += house_cut
+                    house_loss -= payout
+                    payout_total += payout
+                    self.users[user] += payout
+                    correct_bets += 1
                     outcomes[user] = {"user": user, "outcome": "won", "balance": payout}
                 elif bet.get("bet_on") != roll:
-                    self.users["house"] += bet["points"]
-                    self.users[user] -= bet["points"]  # Subtract points from user
+                    house_gain += bet["points"]
+                    self.users[user] -= bet["points"]
+                    incorrect_bets += 1
                     outcomes[user] = {
                         "user": user,
                         "outcome": "lost",
                         "balance": bet["points"],
                     }
-            return_string = "The outcome of the gamble is:\n"
+            self.users["house"] += house_gain + house_loss
+            winning_string = ""
+            losing_string = ""
             for user, data in outcomes.items():
-                return_string += (
-                    f"- {data['user']} {data['outcome']} {data['balance']} fluxbux\n"
-                )
+                if data["outcome"] == "won":
+                    winning_string += f"- **{data['user']}** {data['outcome']} **{data['balance']}** fluxbux\n"
+                else:
+                    losing_string += f"- **{data['user']}** {data['outcome']} **{data['balance']}** fluxbux\n"
+            return_string = f"The winner is **{roll}**\n**Winners:**\n{winning_string}**Losers**\n{losing_string}"
             self.weeks[week]["result"] = {
-                "roll": roll,
-                "winner_pool": winner_pool,
-                "total_pool": total_pool,
-                "lost_fluxbux": total_pool - winner_pool,
+                "Winner": roll,
+                "Correct bets": correct_bets,
+                "Incorrect bets": incorrect_bets,
+                "Total betting pool": betting_pool,
+                "Winning pool": winner_pool,
+                "Total payouts": payout_total,
+                "Total house comission on payouts": house_comission,
+                "Total fluxbux to house from lost bets": house_gain,
+                "Total fluxbux gone to the house": house_gain + house_loss,
             }
             return await print_return(return_string)
         except Exception as e:
             return e
 
+    async def house_payout(self, points: int, ratio: float) -> Tuple[float, float]:
+        payout = points - (points * ratio)
+        house_gain = points * ratio
+        return (payout, house_gain)
+
     async def get_payout_ratio(self, points: int) -> float:
         if points <= 100:
             return 2
-        if 101 <= points <= 500:
+        if 101 <= points <= 300:
             return 1.5
-        # points > 500
+        # points > 300
         return 1
 
     async def print_status(self, week):
@@ -242,7 +279,7 @@ class Game:
 class Commands(discord.Cog, name="Commands"):
     def __init__(self, bot, json_queue):
         self.game: Game = None
-        self.bot: discord.bot = bot
+        self.bot: discord.Bot = bot
         self.json_queue = json_queue
         self.current_week = str(date.today().isocalendar().week)
 
@@ -258,9 +295,18 @@ class Commands(discord.Cog, name="Commands"):
             self.game: Game = Game()
             print("Started a new game")
 
-        print("Starting json loop")
+        # setup giveaway views
+        view = discord.ui.View(timeout=None)
+        for guild in GUILDS:
+            guild = self.bot.get_guild(guild)
+            for week in self.game.weeks:
+                view.add_item(PointButton(self.game, week))
+        self.bot.add_view(view)
+
+        print("Starting json and week setup loop")
         while True:
             await asyncio.sleep(15)
+            await self.game.setup_week(self.current_week)
             await self.json_queue.put(Jsonfy(self.game))
 
     async def bet_on_autocompleter(self, ctx: discord.AutocompleteContext):
@@ -278,32 +324,38 @@ class Commands(discord.Cog, name="Commands"):
         return [user for user in users if user.startswith(ctx.value.lower())][:25]
 
     @discord.slash_command(
-        name="start_bet",
+        name="set",
         description="Start a betting round",
         guild_ids=GUILDS,
         checks=[check_operator_roles()],
     )
     @discord.option(
-        name="options",
+        name="users",
         description="Set the users to be able to bet on",
         required=True,
     )
+    @discord.option(
+        name="reset",
+        description="Reset bets",
+        required=False,
+        default=True,
+    )
     @discord.guild_only()
-    async def start_bet(self, ctx: discord.ApplicationContext, options: str):
+    async def set(self, ctx: discord.ApplicationContext, users: str, reset: bool):
         await ctx.defer()
-        options = [option.strip() for option in options.split(sep=",")]
-        response = await self.game.set_options(self.current_week, options)
+        users = [option.strip() for option in users.split(sep=",")]
+        response = await self.game.set_options(self.current_week, users, reset)
         await ctx.respond(response)
 
     @discord.slash_command(
         name="give",
-        description="Give points",
+        description="Give fluxbux",
         guild_ids=GUILDS,
         checks=[check_operator_roles()],
     )
     @discord.option(
         name="user",
-        description="Which user to give points to",
+        description="Which user to give fluxbux to",
         required=True,
         autocomplete=players_autocompleter,
     )
@@ -315,16 +367,17 @@ class Commands(discord.Cog, name="Commands"):
         self, ctx: discord.ApplicationContext, user: discord.User, fluxbux: int
     ):
         await ctx.defer()
-        await self.game.add_user(user.name)
-        response = await self.game.give_points(user.name, fluxbux)
+        response = await self.game.give_points(user.name, fluxbux, self.current_week)
         await ctx.respond(response)
 
     @discord.slash_command(
         name="status",
-        description="Start a betting round",
+        description="Get fluxbux and the bets for the current week",
         guild_ids=GUILDS,
     )
-    @discord.option(name="week", description="Which week to look up", required=False)
+    @discord.option(
+        name="week", description="Which week to look up the bets for", required=False
+    )
     @discord.guild_only()
     async def status(self, ctx: discord.ApplicationContext, week: str):
         await ctx.defer()
@@ -360,20 +413,19 @@ class Commands(discord.Cog, name="Commands"):
     )
     @discord.option(
         name="fluxbux",
-        description="How much to bet",
+        description="bux <= 100 = ratio 2, 101 <= bux <= 300 = ratio 1.5, bux > 300 = ratio 1",
         required=True,
     )
     @discord.guild_only()
     async def bet(self, ctx: discord.ApplicationContext, user: str, fluxbux: int):
         await ctx.defer()
-        await self.game.add_user(ctx.user.name)
         response = await self.game.place_bet(
             self.current_week, ctx.user.name, user, fluxbux
         )
         await ctx.respond(response)
 
     @discord.slash_command(
-        name="gamble",
+        name="payout",
         description="Payout based on who won",
         guild_ids=GUILDS,
         checks=[check_operator_roles()],
@@ -385,10 +437,61 @@ class Commands(discord.Cog, name="Commands"):
         autocomplete=bet_on_autocompleter,
     )
     @discord.guild_only()
-    async def gamble(self, ctx: discord.ApplicationContext, winner: str):
+    async def payout(self, ctx: discord.ApplicationContext, winner: str):
         await ctx.defer()
         response = await self.game.update_points(self.current_week, winner)
         await ctx.respond(response)
+
+    @discord.slash_command(
+        name="giveaway",
+        description="Make a message which gives away fluxbux",
+        guild_ids=GUILDS,
+        checks=[check_operator_roles()],
+    )
+    @discord.option(
+        name="week",
+        description="Which week to give the fluxbux away as",
+        required=False,
+    )
+    @discord.guild_only()
+    async def giveaway(self, ctx: discord.ApplicationContext, week):
+        await ctx.defer()
+        if week is None:
+            week = self.current_week
+        if "claimed" not in self.game.weeks.get(week):
+            self.game.weeks[week]["claimed"] = {}
+        view = discord.ui.View(timeout=None)
+        view.add_item(PointButton(self.game, week))
+        await ctx.respond(
+            f"Click the button to get 100 fluxbux for week {week}", view=view
+        )
+
+
+class PointButton(discord.ui.Button):
+    def __init__(self, game, week):
+        super().__init__(
+            label="Get Fluxbux",
+            style=discord.ButtonStyle.primary,
+            custom_id=week,
+        )
+        self.game = game
+
+    async def callback(self, interaction: discord.Interaction):
+        user: discord.User = interaction.user
+        game: Game = self.game
+        week = str(self.custom_id)
+
+        gave_points = await game.give_points(
+            user=user.name, points=100, week=week, button=True
+        )
+        if gave_points:
+            await interaction.response.send_message(
+                f"You got 100 fluxbux for week {week}", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"You've already gotten fluxbux for week {week}", ephemeral=True
+            )
 
 
 activity = discord.Activity(
