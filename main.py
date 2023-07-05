@@ -118,13 +118,16 @@ class Game:
         if name not in self.users:
             self.users[name] = 0
 
-    async def set_options(self, week: str, option: list, reset: bool):
-        self.weeks[week]["options"] = option
-        if reset:
+    async def set_options(self, week: str, options: list, reset: str):
+        if reset == "full":
+            self.weeks[week]["options"] = []
             self.weeks[week]["betting_pool"] = {}
             self.weeks[week]["bets"] = {}
             self.weeks[week]["result"] = {}
-        listed_users = "\n".join("- " + user for user in option)
+        if reset == "options":
+            self.weeks[week]["options"] = []
+        self.weeks[week]["options"] += options
+        listed_users = "\n".join("- " + user for user in self.weeks[week]["options"])
         return await print_return(f"Set week {week} to:\n{listed_users}")
 
     async def give_points(self, user, points, week, button=False):
@@ -337,11 +340,12 @@ class Commands(discord.Cog, name="Commands"):
     @discord.option(
         name="reset",
         description="Reset bets",
+        choices=["full", "options"],
         required=False,
-        default=True,
+        default=None,
     )
     @discord.guild_only()
-    async def set(self, ctx: discord.ApplicationContext, users: str, reset: bool):
+    async def set(self, ctx: discord.ApplicationContext, users: str, reset: str):
         await ctx.defer()
         users = [option.strip() for option in users.split(sep=",")]
         response = await self.game.set_options(self.current_week, users, reset)
