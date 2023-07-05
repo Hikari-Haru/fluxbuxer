@@ -6,7 +6,7 @@ import discord
 import json
 import aiofiles
 from typing import Callable, Tuple
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -463,7 +463,7 @@ class Commands(discord.Cog, name="Commands"):
 
     @discord.slash_command(
         name="giveaway",
-        description="Make a message which gives away fluxbux",
+        description="Make a message which gives away fluxbux for 4 hours",
         guild_ids=GUILDS,
         checks=[check_operator_roles()],
     )
@@ -499,6 +499,14 @@ class PointButton(discord.ui.Button):
         user: discord.User = interaction.user
         game: Game = self.game
         week = str(self.custom_id)
+        time_diff = datetime.now(timezone.utc) - interaction.message.created_at
+        four_hours = timedelta(hours=4)
+
+        if time_diff > four_hours:
+            await interaction.response.send_message(
+                "It's been more than 4 hours, this is now invalid", ephemeral=True
+            )
+            return
 
         gave_points = await game.give_points(
             user=user.name, points=100, week=week, button=True
