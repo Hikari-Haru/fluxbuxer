@@ -1,3 +1,4 @@
-.env
-database.json
 .vscode
+.env
+backup
+database.json

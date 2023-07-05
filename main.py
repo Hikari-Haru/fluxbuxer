@@ -6,7 +6,7 @@ import discord
 import json
 import aiofiles
 from typing import Callable, Tuple
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -71,7 +71,24 @@ class Jsonfy:
                     continue
                 to_json = await json_queue.get()
 
-                async with aiofiles.open("database.json", "w", encoding="utf-8") as f:
+                formatted_date = datetime.now().strftime("%Y-%m-%d")
+                Path("backup").mkdir(exist_ok=True)
+
+                try:
+                    async with aiofiles.open(
+                        "database.json", "w", encoding="utf-8"
+                    ) as f:
+                        await f.write(
+                            json.dumps(await to_json.game.to_json(), indent=4)
+                        )
+                except Exception:
+                    await asyncio.sleep(PROCESS_WAIT_TIME)
+                    raise
+
+                # Save a backup, this is not ran if the first save fails
+                async with aiofiles.open(
+                    f"backup/database_{formatted_date}.json", "w", encoding="utf-8"
+                ) as f:
                     await f.write(json.dumps(await to_json.game.to_json(), indent=4))
 
                 await asyncio.sleep(PROCESS_WAIT_TIME)
