@@ -317,10 +317,8 @@ class Commands(discord.Cog, name="Commands"):
 
         # setup giveaway views
         view = discord.ui.View(timeout=None)
-        for guild in GUILDS:
-            guild = self.bot.get_guild(guild)
-            for week in self.game.weeks:
-                view.add_item(PointButton(self.game, week))
+        for week in self.game.weeks:
+            view.add_item(PointButton(self.game, week))
         self.bot.add_view(view)
 
         print("Starting json and week setup loop")
