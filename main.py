@@ -169,6 +169,10 @@ class Game:
                 return True
             return False
 
+    async def spent_points(self, week, user: str):
+        total_usage = sum(self.weeks[week].get("bets").get(user).values())
+        return total_usage
+
     async def update_pool(self, week: int):
         betting_pool = {}
         for user, bets in self.weeks[week]["bets"].items():
@@ -198,8 +202,11 @@ class Game:
             if points <= 0:
                 return "You can't bet less than 0 points"
             # Check if the user has enough points to bet
-            if self.users.get(user) < points:
-                return f"Not enough fluxbux to bet, you only have {self.users[user]} fluxbux"
+            if (self.spent_points(week, user) + points) > self.users.get(user):
+                return (
+                    f"Insufficient points, you've spent {self.spent_points(week, user)} points, "
+                    f"with a bet of {points} you've gone over your points of {self.users.get(user)}"
+                )
             # Check if bet_on is an option
             if bet_on not in self.weeks.get(week).get("options", ""):
                 return f"{bet_on} is not a valid user to bet on"
