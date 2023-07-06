@@ -16,6 +16,7 @@ GUILDS = os.getenv("GUILDS")
 GUILDS = GUILDS.split(",") if "," in GUILDS else [GUILDS]
 GUILDS = [int(guild) for guild in GUILDS]
 OPERATOR_ROLE = os.getenv("OPERATOR_ROLE")
+OPERATOR_ID = os.getenv("OPERATOR_ID")
 
 
 async def string_dict(dictionary: dict, listed: bool = False, bets: bool = False):
@@ -43,6 +44,8 @@ async def print_return(statement):
 def check_operator_roles() -> Callable:
     async def inner(ctx: discord.ApplicationContext):
         if OPERATOR_ROLE == [None]:
+            return True
+        if ctx.user.id == OPERATOR_ID:
             return True
         if not any(role.name.lower() in OPERATOR_ROLE for role in ctx.user.roles):
             await ctx.defer(ephemeral=True)
@@ -295,16 +298,12 @@ class Game:
         betting_pool = await string_dict(
             self.weeks.get(week, {}).get("betting_pool", {}), listed=True
         )
-        return await print_return(
-            f":coin: Current fluxbux listing\n{currency}\n:bar_chart: Bets for week {week}\n{bets}\n:moneybag: Betting pool\n{betting_pool}"
-        )
+        return f":coin: Current fluxbux listing\n{currency}\n:bar_chart: Bets for week {week}\n{bets}\n:moneybag: Betting pool\n{betting_pool}"
 
     async def print_roll(self, week: str):
         if self.weeks.get(week, {}).get("result", {}) == {}:
-            return await print_return(f"No roll for week {week}")
-        return await print_return(
-            f"The spin for week {week} is:\n{await string_dict(self.weeks.get(week, self.current_week)['result'], listed=True)}"
-        )
+            return f"No roll for week {week}"
+        return f"The spin for week {week} is:\n{await string_dict(self.weeks.get(week, self.current_week)['result'], listed=True)}"
 
 
 class Commands(discord.Cog, name="Commands"):
