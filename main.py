@@ -292,8 +292,11 @@ class Game:
     async def print_status(self, week):
         currency = await string_dict(self.users, listed=True)
         bets = await string_dict(self.weeks.get(week, {}).get("bets", {}), bets=True)
+        betting_pool = await string_dict(
+            self.weeks.get(week, {}).get("betting_pool", {}), listed=True
+        )
         return await print_return(
-            f"Current fluxbux listing :coin::\n{currency}\nBets for week {week} :bar_chart::\n{bets}"
+            f"Current fluxbux listing :coin:\n{currency}\nBets for week {week} :bar_chart:\n{bets}\nBetting pool :moneybag:\n{betting_pool}"
         )
 
     async def print_roll(self, week: str):
