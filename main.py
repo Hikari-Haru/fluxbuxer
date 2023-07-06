@@ -262,15 +262,15 @@ class Game:
             winner_id = self.user_map.get(roll, roll)
             return_string = f"The winner is <@{winner_id}>\n**Winners:**\n{winning_string}**Losers**\n{losing_string}"
             self.weeks[week]["result"] = {
-                "Winner": roll,
-                "Correct bets": correct_bets,
-                "Incorrect bets": incorrect_bets,
-                "Total betting pool": betting_pool,
-                "Winning pool": winner_pool,
-                "Total payouts": payout_total,
-                "Total house comission on payouts": house_comission,
-                "Total fluxbux to house from lost bets": house_gain,
-                "Total fluxbux gone to the house": house_gain + house_loss,
+                ":tada: Winner": roll,
+                ":white_check_mark: Correct bets": correct_bets,
+                "<:redCross:1126317725497692221> Incorrect bets": incorrect_bets,
+                ":moneybag: Total betting pool": betting_pool,
+                ":moneybag: Winning pool": winner_pool,
+                ":moneybag: Total payouts": payout_total,
+                ":house: Total house comission on payouts": house_comission,
+                ":house: Total fluxbux to house from lost bets": house_gain,
+                ":house: Total fluxbux gone to the house": house_gain + house_loss,
             }
             return await print_return(return_string)
         except Exception as e:
@@ -296,7 +296,7 @@ class Game:
             self.weeks.get(week, {}).get("betting_pool", {}), listed=True
         )
         return await print_return(
-            f"Current fluxbux listing :coin:\n{currency}\nBets for week {week} :bar_chart:\n{bets}\nBetting pool :moneybag:\n{betting_pool}"
+            f":coin: Current fluxbux listing\n{currency}\n:bar_chart: Bets for week {week}\n{bets}\n:moneybag: Betting pool\n{betting_pool}"
         )
 
     async def print_roll(self, week: str):
