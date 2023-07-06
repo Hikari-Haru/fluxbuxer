@@ -19,18 +19,16 @@ OPERATOR_ROLE = os.getenv("OPERATOR_ROLE")
 OPERATOR_ID = os.getenv("OPERATOR_ID")
 
 
-async def string_dict(dictionary: dict, listed: bool = False, bets: bool = False):
+async def string_dict(dictionary: dict, listed: bool = False, bet_listed: bool = False):
     if dictionary == {}:
         return "- **None**"
     if listed:
         string = "\n".join([f"- {k}: **{v}**" for k, v in dictionary.items()])
-    elif bets:
-        string = "\n".join(
-            [
-                f"- **{user}** bet on **{info['bet_on']}** for **{info['points']}** fluxbux"
-                for user, info in dictionary.items()
-            ]
-        )
+    elif bet_listed:
+        string = ""
+        for user, bets in dictionary.items():
+            for bet, value in bets.items():
+                string += f"- **{user}**: **{bet}** for **{value}** fluxbux\n"
     else:
         string = ", ".join([f"{k}: {v}" for k, v in dictionary.items()])
     return string
@@ -171,37 +169,51 @@ class Game:
                 return True
             return False
 
+    async def update_pool(self, week: int):
+        betting_pool = {}
+        for user, bets in self.weeks[week]["bets"].items():
+            for option, value in bets.items():
+                if option in betting_pool:
+                    betting_pool[option] += value
+                else:
+                    betting_pool[option] = value
+
+        self.weeks[week]["betting_pool"] = betting_pool
+
+    async def remove_bet(self, week: str, user: str, bet_on: str):
+        try:
+            del self.weeks[week]["bets"][user][bet_on]
+            self.update_pool(week)
+            return f"Removed your bet on {bet_on}"
+        except Exception:
+            traceback.print_exc()
+            return f"Failed to remove bet on {bet_on}"
+
     async def place_bet(self, week: str, user: str, bet_on: str, points: int):
         try:
             await self.add_user(user)
             # Check if this week has already finished
             if self.weeks.get(week).get("result") != {}:
                 return f"Week {week} has already been ran, you bet on {self.weeks.get(week).get('bets').get(user).get('bet_on')}"
+            if points <= 0:
+                return "You can't bet less than 0 points"
             # Check if the user has enough points to bet
             if self.users.get(user) < points:
                 return f"Not enough fluxbux to bet, you only have {self.users[user]} fluxbux"
             # Check if bet_on is an option
             if bet_on not in self.weeks.get(week).get("options", ""):
                 return f"{bet_on} is not a valid user to bet on"
-            # Check if user exists in weeks dictionary, if they do subtract their old points from the relevant points pool
+            # Add your user bet if it doesn't exist
             if user not in self.weeks.get(week).get("bets"):
-                self.weeks[week]["bets"][user] = {"bet_on": "", "points": 0}
-            else:
-                old_bet_on = self.weeks.get(week).get("bets").get(user).get("bet_on")
-                old_points = self.weeks.get(week).get("bets").get(user).get("points")
-                try:
-                    self.weeks[week]["betting_pool"][old_bet_on] -= old_points
-                except Exception:
-                    traceback.print_exc()
+                self.weeks[week]["bets"][user] = {}
+            if bet_on not in self.weeks.get(week).get("bets").get(user):
+                self.weeks[week]["bets"][user][bet_on] = 0
+
             # Update bet
-            self.weeks[week]["bets"][user]["bet_on"] = bet_on
-            self.weeks[week]["bets"][user]["points"] = points
+            self.weeks[week]["bets"][user][bet_on] = points
 
             # Update betting pool
-            if bet_on not in self.weeks.get(week).get("betting_pool"):
-                self.weeks[week]["betting_pool"][bet_on] = points
-            else:
-                self.weeks[week]["betting_pool"][bet_on] += points
+            self.update_pool(week)
 
             ratio = await self.get_payout_ratio(points)
             return_string = f"**{user}** bet **{points}** fluxbux on **{bet_on}** for a **{ratio}** payout ratio on week {week}"
@@ -294,7 +306,9 @@ class Game:
 
     async def print_status(self, week):
         currency = await string_dict(self.users, listed=True)
-        bets = await string_dict(self.weeks.get(week, {}).get("bets", {}), bets=True)
+        bets = await string_dict(
+            self.weeks.get(week, {}).get("bets", {}), bet_listed=True
+        )
         betting_pool = await string_dict(
             self.weeks.get(week, {}).get("betting_pool", {}), listed=True
         )
@@ -446,11 +460,37 @@ class Commands(discord.Cog, name="Commands"):
         required=True,
     )
     @discord.guild_only()
-    async def bet(self, ctx: discord.ApplicationContext, user: str, fluxbux: int):
+    async def bet(
+        self,
+        ctx: discord.ApplicationContext,
+        user: str,
+        fluxbux: int,
+    ):
         await ctx.defer()
         response = await self.game.place_bet(
             self.current_week, ctx.user.name, user, fluxbux
         )
+        await ctx.respond(response)
+
+    @discord.slash_command(
+        name="remove_bet",
+        description="Bet on a person",
+        guild_ids=GUILDS,
+    )
+    @discord.option(
+        name="user",
+        description="Which user remove your bet for",
+        required=True,
+        autocomplete=bet_on_autocompleter,
+    )
+    @discord.guild_only()
+    async def remove_bet(
+        self,
+        ctx: discord.ApplicationContext,
+        user: str,
+    ):
+        await ctx.defer()
+        response = await self.game.remove_bet(self.current_week, ctx.user.name, user)
         await ctx.respond(response)
 
     @discord.slash_command(
