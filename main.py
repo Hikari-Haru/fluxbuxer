@@ -303,7 +303,7 @@ class Game:
         if self.weeks.get(week, {}).get("result", {}) == {}:
             return await print_return(f"No roll for week {week}")
         return await print_return(
-            f"The roll for week {week} is:\n{await string_dict(self.weeks.get(week, self.current_week)['result'], listed=True)}"
+            f"The spin for week {week} is:\n{await string_dict(self.weeks.get(week, self.current_week)['result'], listed=True)}"
         )
 
 
