@@ -97,9 +97,12 @@ class Jsonfy:
 
 
 class Game:
-    def __init__(self, users=None, weeks=None):
+    def __init__(self, users=None, user_map=None, weeks=None):
         self.users = (
             users if users is not None else {}
+        )  # Dictionary to store users and their points
+        self.user_map = (
+            user_map if user_map is not None else {}
         )  # Dictionary to store users and their points
         self.weeks = (
             weeks if weeks is not None else {}
@@ -114,6 +117,7 @@ class Game:
     async def to_json(self):
         return {
             "users": self.users,
+            "user_map": self.user_map,
             "weeks": self.weeks,
         }
 
@@ -134,6 +138,9 @@ class Game:
     async def add_user(self, name: str):
         if name not in self.users:
             self.users[name] = 0
+
+    async def link(self, user: str, discord_user: discord.User):
+        self.user_map[user] = discord_user.id
 
     async def set_options(self, week: str, options: list, reset: str):
         if reset == "full":
@@ -194,7 +201,7 @@ class Game:
                 self.weeks[week]["betting_pool"][bet_on] += points
 
             ratio = await self.get_payout_ratio(points)
-            return_string = f"{user} bet {points} fluxbux on {bet_on} for a {ratio} payout ratio on week {week}"
+            return_string = f"**{user}** bet **{points}** fluxbux on **{bet_on}** for a **{ratio}** payout ratio on week {week}"
             return await print_return(return_string)
         except Exception as e:
             return e
@@ -252,7 +259,8 @@ class Game:
                     winning_string += f"- **{data['user']}** {data['outcome']} **{data['balance']}** fluxbux\n"
                 else:
                     losing_string += f"- **{data['user']}** {data['outcome']} **{data['balance']}** fluxbux\n"
-            return_string = f"The winner is **{roll}**\n**Winners:**\n{winning_string}**Losers**\n{losing_string}"
+            winner_id = self.user_map.get(roll, roll)
+            return_string = f"The winner is <@{winner_id}>\n**Winners:**\n{winning_string}**Losers**\n{losing_string}"
             self.weeks[week]["result"] = {
                 "Winner": roll,
                 "Correct bets": correct_bets,
@@ -285,7 +293,7 @@ class Game:
         currency = await string_dict(self.users, listed=True)
         bets = await string_dict(self.weeks.get(week, {}).get("bets", {}), bets=True)
         return await print_return(
-            f"Current fluxbux listing:\n{currency}\nBets for week {week}:\n{bets}"
+            f"Current fluxbux listing :coin::\n{currency}\nBets for week {week} :bar_chart::\n{bets}"
         )
 
     async def print_roll(self, week: str):
@@ -484,6 +492,29 @@ class Commands(discord.Cog, name="Commands"):
         await ctx.respond(
             f"Click the button to get 100 fluxbux for week {week}", view=view
         )
+
+    @discord.slash_command(
+        name="link",
+        description="Link a user to a discord user",
+        guild_ids=GUILDS,
+        checks=[check_operator_roles()],
+    )
+    @discord.option(
+        name="user",
+        description="nickname to use",
+        required=True,
+    )
+    @discord.option(
+        name="discord_user",
+        description="discord user to use",
+        required=True,
+    )
+    async def link(
+        self, ctx: discord.ApplicationContext, user: str, discord_user: discord.User
+    ):
+        await ctx.defer()
+        await self.game.link(user, discord_user)
+        await ctx.respond(f"Linked {user} and {discord_user.name}")
 
 
 class PointButton(discord.ui.Button):
