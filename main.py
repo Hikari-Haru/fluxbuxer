@@ -177,6 +177,8 @@ class Game:
             # Check if this week has already finished
             if self.weeks.get(week).get("result") != {}:
                 return f"Week {week} has already been ran, you bet on {self.weeks.get(week).get('bets').get(user).get('bet_on')}"
+            if points <= 0:
+                return "You can't bet less than 0 points"
             # Check if the user has enough points to bet
             if self.users.get(user) < points:
                 return f"Not enough fluxbux to bet, you only have {self.users[user]} fluxbux"
