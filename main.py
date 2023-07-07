@@ -34,7 +34,7 @@ async def string_dict(dictionary: dict, listed: bool = False, bet_listed: bool =
     return string
 
 
-async def print_return(statement):
+async def print_return(statement: str) -> str:
     print(statement)
     return statement
 
@@ -181,7 +181,6 @@ class Game:
                     betting_pool[option] += value
                 else:
                     betting_pool[option] = value
-
         self.weeks[week]["betting_pool"] = betting_pool
 
     async def remove_bet(self, week: str, user: str, bet_on: str):
@@ -311,23 +310,27 @@ class Game:
         # points > 300
         return 1
 
-    async def print_status(self, week):
-        currency = await string_dict(self.users, listed=True)
-        bets = await string_dict(
-            self.weeks.get(week, {}).get("bets", {}), bet_listed=True
-        )
-        betting_pool = await string_dict(
+    async def print_status(self, week: str) -> str:
+        currency: str = await string_dict(self.users, listed=True)
+        betting_pool: str = await string_dict(
             self.weeks.get(week, {}).get("betting_pool", {}), listed=True
         )
-        return f":coin: Current fluxbux listing\n{currency}\n:bar_chart: Bets for week {week}\n{bets}\n:moneybag: Betting pool\n{betting_pool}"
+        bets: str = await string_dict(
+            self.weeks.get(week, {}).get("bets", {}), bet_listed=True
+        )
+        return f":coin: Current fluxbux listing\n{currency}\n:moneybag: Betting pool\n{betting_pool}\n:bar_chart: Bets for week {week}\n{bets}"
 
-    async def print_roll(self, week: str):
-        if self.weeks.get(week, {}).get("result", {}) == {}:
-            return f"No roll for week {week}"
-        return f"The spin for week {week} is:\n{await string_dict(self.weeks.get(week, self.current_week)['result'], listed=True)}"
+    async def print_roll(self, week: str) -> str:
+        if week not in self.weeks:
+            return f"No spin for week {week}"
+        if self.weeks[week]["result"] == {}:
+            return f"No spin for week {week}"
+        return f"The spin for week {week} is:\n{await string_dict(self.weeks[week]['result'], listed=True)}"
 
-    async def print_user_balance(self, user: str):
-        return f"{user} has {self.users.get(user)} fluxbux"
+    async def print_user_balance(self, user: str) -> str:
+        if user not in self.users:
+            return f"{user} is not a user"
+        return f"{user} has {self.users[user]} fluxbux"
 
 
 class Commands(discord.Cog, name="Commands"):
