@@ -326,6 +326,9 @@ class Game:
             return f"No roll for week {week}"
         return f"The spin for week {week} is:\n{await string_dict(self.weeks.get(week, self.current_week)['result'], listed=True)}"
 
+    async def print_user_balance(self, user: str):
+        return f"{user} has {self.users.get(user)} fluxbux"
+
 
 class Commands(discord.Cog, name="Commands"):
     def __init__(self, bot, json_queue):
@@ -435,6 +438,17 @@ class Commands(discord.Cog, name="Commands"):
             week = self.current_week
         response = await self.game.print_status(week)
         await ctx.respond(response)
+
+    @discord.slash_command(
+        name="balance",
+        description="Get user balance",
+        guild_ids=GUILDS,
+    )
+    @discord.guild_only()
+    async def balance(self, ctx: discord.ApplicationContext):
+        await ctx.defer()
+        response = await self.game.print_user_balance(ctx.user.name)
+        await ctx.respond(response, ephemeral=True)
 
     @discord.slash_command(
         name="results",
