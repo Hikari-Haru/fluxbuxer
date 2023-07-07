@@ -45,7 +45,7 @@ def check_operator_roles() -> Callable:
     async def inner(ctx: discord.ApplicationContext):
         if OPERATOR_ROLE == [None]:
             return True
-        if ctx.user.id == OPERATOR_ID:
+        if ctx.user.id == int(OPERATOR_ID):
             return True
         if not any(role.name.lower() in OPERATOR_ROLE for role in ctx.user.roles):
             await ctx.defer(ephemeral=True)
