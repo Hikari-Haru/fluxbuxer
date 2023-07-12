@@ -629,7 +629,7 @@ class Commands(discord.Cog, name="Commands"):
         fluxbux: int,
     ):
         await ctx.defer()
-        response = await self.game.transfer_fluxbux(ctx.user.name, user, fluxbux)
+        response = await self.game.transfer_points(ctx.user.name, user, fluxbux)
         await ctx.respond(response)
 
     @discord.slash_command(
