@@ -169,6 +169,15 @@ class Game:
                 return True
             return False
 
+    async def transfer_points(self, from_user, to_user, points):
+        await self.add_user(from_user)
+        await self.add_user(to_user)
+        if self.users[from_user] >= points:
+            self.users[from_user] -= points
+            self.users[to_user] += points
+            return f"Transferred {points} fluxbux from {from_user} to {to_user}"
+        return f"{from_user} does not have enough fluxbux"
+
     async def spent_points(self, week, user: str):
         try:
             total_usage = sum(self.weeks[week].get("bets").get(user).values())
@@ -384,7 +393,14 @@ class Commands(discord.Cog, name="Commands"):
         users = self.game.weeks[self.current_week]["options"]
         return [user for user in users if user.startswith(ctx.value.lower())][:25]
 
-    async def players_autocompleter(self, ctx: discord.AutocompleteContext):
+    async def options_autocompleter(self, ctx: discord.AutocompleteContext):
+        if self.game is None:
+            await ctx.interaction.response.defer()
+            return []
+        users = self.game.users.keys()
+        return [user for user in users if user.startswith(ctx.value.lower())][:25]
+
+    async def player_autocompleter(self, ctx: discord.AutocompleteContext):
         if self.game is None:
             await ctx.interaction.response.defer()
             return []
@@ -433,7 +449,7 @@ class Commands(discord.Cog, name="Commands"):
         name="user",
         description="Which user to give fluxbux to",
         required=True,
-        autocomplete=players_autocompleter,
+        autocomplete=options_autocompleter,
     )
     @discord.option(
         name="fluxbux", description="How many fluxbux to give", required=True
@@ -587,6 +603,34 @@ class Commands(discord.Cog, name="Commands"):
         await ctx.respond(
             f"Click the button to get 100 fluxbux for week {week}", view=view
         )
+
+    # command to transfer fluxbux from the user who runs the command to another user
+    @discord.slash_command(
+        name="transfer",
+        description="Transfer fluxbux to another user",
+        guild_ids=GUILDS,
+    )
+    @discord.option(
+        name="user",
+        description="Which user to transfer to",
+        required=True,
+        autocomplete=player_autocompleter,
+    )
+    @discord.option(
+        name="fluxbux",
+        description="How many fluxbux to transfer",
+        required=True,
+    )
+    @discord.guild_only()
+    async def transfer(
+        self,
+        ctx: discord.ApplicationContext,
+        user: str,
+        fluxbux: int,
+    ):
+        await ctx.defer()
+        response = await self.game.transfer_fluxbux(ctx.user.name, user, fluxbux)
+        await ctx.respond(response)
 
     @discord.slash_command(
         name="link",
