@@ -170,7 +170,10 @@ class Game:
             return False
 
     async def spent_points(self, week, user: str):
-        total_usage = sum(self.weeks[week].get("bets").get(user).values())
+        try:
+            total_usage = sum(self.weeks[week].get("bets").get(user).values())
+        except Exception:
+            total_usage = 0
         return total_usage
 
     async def update_pool(self, week: int):
@@ -186,7 +189,7 @@ class Game:
     async def remove_bet(self, week: str, user: str, bet_on: str):
         try:
             del self.weeks[week]["bets"][user][bet_on]
-            self.update_pool(week)
+            await self.update_pool(week)
             return f"Removed your bet on {bet_on}"
         except Exception:
             traceback.print_exc()
@@ -201,10 +204,10 @@ class Game:
             if points <= 0:
                 return "You can't bet less than 0 points"
             # Check if the user has enough points to bet
-            if (self.spent_points(week, user) + points) > self.users.get(user):
+            if (await self.spent_points(week, user) + points) > self.users.get(user):
                 return (
-                    f"Insufficient points, you've spent {self.spent_points(week, user)} points, "
-                    f"with a bet of {points} you've gone over your points of {self.users.get(user)}"
+                    f"Insufficient points, you've spent {await self.spent_points(week, user)} points on bets, "
+                    f"with a bet of {points} you've gone over your {self.users.get(user)} points"
                 )
             # Check if bet_on is an option
             if bet_on not in self.weeks.get(week).get("options", ""):
@@ -219,12 +222,13 @@ class Game:
             self.weeks[week]["bets"][user][bet_on] = points
 
             # Update betting pool
-            self.update_pool(week)
+            await self.update_pool(week)
 
             ratio = await self.get_payout_ratio(points)
             return_string = f"**{user}** bet **{points}** fluxbux on **{bet_on}** for a **{ratio}** payout ratio on week {week}"
             return await print_return(return_string)
         except Exception as e:
+            traceback.print_exc()
             return e
 
     async def update_points(self, week: str, roll: str):
@@ -248,30 +252,37 @@ class Game:
             incorrect_bets = 0
             correct_bets = 0
             payout_total = 0
+            counter = 0
             outcomes = {}
             # Check if week exists in weeks dictionary
-            for user, bet in self.weeks.get(week).get("bets").items():
-                if bet.get("bet_on") == roll:
-                    ratio = await self.get_payout_ratio(points=bet["points"])
-                    payout = bet["points"] * ratio
-                    (payout, house_cut) = await self.house_payout(
-                        points=payout, ratio=house_ratio
-                    )
-                    house_comission += house_cut
-                    house_loss -= payout
-                    payout_total += payout
-                    self.users[user] += payout
-                    correct_bets += 1
-                    outcomes[user] = {"user": user, "outcome": "won", "balance": payout}
-                elif bet.get("bet_on") != roll:
-                    house_gain += bet["points"]
-                    self.users[user] -= bet["points"]
-                    incorrect_bets += 1
-                    outcomes[user] = {
-                        "user": user,
-                        "outcome": "lost",
-                        "balance": bet["points"],
-                    }
+            for user, bets in self.weeks.get(week).get("bets").items():
+                for bet_on, points in bets.items():
+                    if bet_on == roll:
+                        ratio = await self.get_payout_ratio(points=points)
+                        payout = points * ratio
+                        (payout, house_cut) = await self.house_payout(
+                            points=payout, ratio=house_ratio
+                        )
+                        house_comission += house_cut
+                        house_loss -= payout
+                        payout_total += payout
+                        self.users[user] += payout
+                        correct_bets += 1
+                        outcomes[counter] = {
+                            "user": user,
+                            "outcome": "won",
+                            "balance": payout,
+                        }
+                    elif bet_on != roll:
+                        house_gain += points
+                        self.users[user] -= points
+                        incorrect_bets += 1
+                        outcomes[counter] = {
+                            "user": user,
+                            "outcome": "lost",
+                            "balance": points,
+                        }
+                    counter += 1
             self.users["house"] += house_gain + house_loss
             winning_string = ""
             losing_string = ""
@@ -281,7 +292,7 @@ class Game:
                 else:
                     losing_string += f"- **{data['user']}** {data['outcome']} **{data['balance']}** fluxbux\n"
             winner_id = self.user_map.get(roll, roll)
-            return_string = f"The winner is <@{winner_id}>\n**Winners:**\n{winning_string}**Losers**\n{losing_string}"
+            return_string = f"The winner is <@{winner_id}>\n**Gain:**\n{winning_string}**Loss**\n{losing_string}"
             self.weeks[week]["result"] = {
                 ":tada: Winner": roll,
                 ":white_check_mark: Correct bets": correct_bets,
@@ -295,6 +306,7 @@ class Game:
             }
             return await print_return(return_string)
         except Exception as e:
+            traceback.print_exc()
             return e
 
     async def house_payout(self, points: int, ratio: float) -> Tuple[float, float]:
@@ -361,6 +373,7 @@ class Commands(discord.Cog, name="Commands"):
         print("Starting json and week setup loop")
         while True:
             await asyncio.sleep(15)
+            self.current_week = str(date.today().isocalendar().week)
             await self.game.setup_week(self.current_week)
             await self.json_queue.put(Jsonfy(self.game))
 
@@ -377,6 +390,13 @@ class Commands(discord.Cog, name="Commands"):
             return []
         users = self.game.users.keys()
         return [user for user in users if user.startswith(ctx.value.lower())][:25]
+
+    async def week_autocompleter(self, ctx: discord.AutocompleteContext):
+        if self.game is None:
+            await ctx.interaction.response.defer()
+            return []
+        weeks = self.game.weeks.keys()
+        return [week for week in weeks if week.startswith(ctx.value.lower())][:25]
 
     @discord.slash_command(
         name="set",
@@ -432,7 +452,10 @@ class Commands(discord.Cog, name="Commands"):
         guild_ids=GUILDS,
     )
     @discord.option(
-        name="week", description="Which week to look up the bets for", required=False
+        name="week",
+        description="Which week to look up the bets for",
+        required=False,
+        autocomplete=week_autocompleter,
     )
     @discord.guild_only()
     async def status(self, ctx: discord.ApplicationContext, week: str):
@@ -458,7 +481,12 @@ class Commands(discord.Cog, name="Commands"):
         description="Get results for a week",
         guild_ids=GUILDS,
     )
-    @discord.option(name="week", description="Which week to look up", required=False)
+    @discord.option(
+        name="week",
+        description="Which week to look up",
+        required=False,
+        autocomplete=week_autocompleter,
+    )
     @discord.guild_only()
     async def results(self, ctx: discord.ApplicationContext, week: str):
         await ctx.defer()
@@ -545,6 +573,7 @@ class Commands(discord.Cog, name="Commands"):
         name="week",
         description="Which week to give the fluxbux away as",
         required=False,
+        autocomplete=week_autocompleter,
     )
     @discord.guild_only()
     async def giveaway(self, ctx: discord.ApplicationContext, week):
