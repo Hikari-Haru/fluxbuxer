@@ -626,11 +626,11 @@ class PointButton(discord.ui.Button):
         game: Game = self.game
         week = str(self.custom_id)
         time_diff = datetime.now(timezone.utc) - interaction.message.created_at
-        four_hours = timedelta(hours=4)
+        four_hours = timedelta(hours=6)
 
         if time_diff > four_hours:
             await interaction.response.send_message(
-                "It's been more than 4 hours, this is now invalid", ephemeral=True
+                "It's been more than 6 hours, this is now invalid", ephemeral=True
             )
             return
 
