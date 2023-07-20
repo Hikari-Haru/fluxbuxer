@@ -5,6 +5,7 @@ import traceback
 import discord
 import json
 import aiofiles
+from tabulate import tabulate
 from typing import Callable, Tuple
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -19,19 +20,57 @@ OPERATOR_ROLE = os.getenv("OPERATOR_ROLE")
 OPERATOR_ID = os.getenv("OPERATOR_ID")
 
 
-async def string_dict(dictionary: dict, listed: bool = False, bet_listed: bool = False):
+async def string_dict(
+    dictionary: dict,
+    listed: bool = False,
+    table_listed: bool = False,
+    bet_listed: bool = False,
+    table_bet_listed: bool = False,
+    num_columns: int = 1,
+    sort: bool = False,
+):
     if dictionary == {}:
-        return "- **None**"
+        return "```\n- **None**\n```"
     if listed:
         string = "\n".join([f"- {k}: **{v}**" for k, v in dictionary.items()])
-    elif bet_listed:
+        return string
+    if bet_listed:
         string = ""
         for user, bets in dictionary.items():
             for bet, value in bets.items():
                 string += f"- **{user}**: **{bet}** for **{value}** fluxbux\n"
-    else:
-        string = ", ".join([f"{k}: {v}" for k, v in dictionary.items()])
-    return string
+        return string
+    if table_listed:
+        num_columns = max(num_columns, 1)
+        if sort:
+            sorted_dict = dict(
+                sorted(dictionary.items(), key=lambda item: item[1], reverse=True)
+            )
+            items = list(sorted_dict.items())
+        else:
+            items = list(dictionary.items())
+        headers = ["user", "points"] * num_columns
+        rows = []
+        for i in range(0, len(items), num_columns):
+            row = []
+            for j in range(num_columns):
+                if i + j < len(items):
+                    row.extend([items[i + j][0], items[i + j][1]])
+                else:
+                    row.extend(["", ""])
+            rows.append(row)
+    if table_bet_listed:
+        headers = ["user", "bet", "value"]
+        rows = [
+            [user, bet, value]
+            for user, bets in dictionary.items()
+            for bet, value in bets.items()
+        ]
+    return (
+        "```\n"
+        + tabulate(rows, headers=headers, tablefmt="simple", numalign="left")
+        + "\n```"
+    )
 
 
 async def print_return(statement: str) -> str:
@@ -320,12 +359,17 @@ class Game:
         return ratio
 
     async def print_status(self, week: str) -> str:
-        currency: str = await string_dict(self.users, listed=True)
+        currency: str = await string_dict(
+            self.users, table_listed=True, sort=True, num_columns=3
+        )
         betting_pool: str = await string_dict(
-            self.weeks.get(week, {}).get("betting_pool", {}), listed=True
+            self.weeks.get(week, {}).get("betting_pool", {}),
+            table_listed=True,
+            sort=True,
+            num_columns=2,
         )
         bets: str = await string_dict(
-            self.weeks.get(week, {}).get("bets", {}), bet_listed=True
+            self.weeks.get(week, {}).get("bets", {}), table_bet_listed=True
         )
         return f":coin: Current fluxbux listing\n{currency}\n:moneybag: Betting pool\n{betting_pool}\n:bar_chart: Bets for week {week}\n{bets}"
 
