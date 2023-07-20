@@ -233,7 +233,7 @@ class Game:
             # Update betting pool
             await self.update_pool(week)
 
-            ratio = await self.get_payout_ratio(points)
+            ratio = await self.get_payout_ratio(week=week)
             return_string = f"**{user}** bet **{points}** fluxbux on **{bet_on}** for a **{ratio}** payout ratio on week {week}"
             return await print_return(return_string)
         except Exception as e:
@@ -260,21 +260,17 @@ class Game:
             house_gain = 0
             incorrect_bets = 0
             correct_bets = 0
-            payout_total = 0
             counter = 0
             outcomes = {}
             # Check if week exists in weeks dictionary
             for user, bets in self.weeks.get(week).get("bets").items():
                 for bet_on, points in bets.items():
                     if bet_on == roll:
-                        ratio = await self.get_payout_ratio(points=points)
+                        ratio = await self.get_payout_ratio(week=week)
                         payout = points * ratio
-                        (payout, house_cut) = await self.house_payout(
-                            points=payout, ratio=house_ratio
-                        )
-                        house_comission += house_cut
-                        house_loss -= payout
-                        payout_total += payout
+                        payout = points - (points * house_ratio)  # house comission
+                        house_comission += points * house_ratio
+                        house_loss += payout
                         self.users[user] += payout
                         correct_bets += 1
                         outcomes[counter] = {
@@ -292,7 +288,7 @@ class Game:
                             "balance": points,
                         }
                     counter += 1
-            self.users["house"] += house_gain + house_loss
+            self.users["house"] += house_gain - house_loss
             winning_string = ""
             losing_string = ""
             for user, data in outcomes.items():
@@ -308,28 +304,20 @@ class Game:
                 "<:redCross:1126317725497692221> Incorrect bets": incorrect_bets,
                 ":moneybag: Total betting pool": betting_pool,
                 ":moneybag: Winning pool": winner_pool,
-                ":moneybag: Total payouts": payout_total,
+                ":moneybag: Total payouts": house_loss,
                 ":house: Total house comission on payouts": house_comission,
                 ":house: Total fluxbux to house from lost bets": house_gain,
-                ":house: Total fluxbux gone to the house": house_gain + house_loss,
+                ":house: Total fluxbux gone to the house": house_gain - house_loss,
             }
             return await print_return(return_string)
         except Exception as e:
             traceback.print_exc()
             return e
 
-    async def house_payout(self, points: int, ratio: float) -> Tuple[float, float]:
-        payout = points - (points * ratio)
-        house_gain = points * ratio
-        return (payout, house_gain)
-
-    async def get_payout_ratio(self, points: int) -> float:
-        if points <= 100:
-            return 2
-        if 101 <= points <= 300:
-            return 1.5
-        # points > 300
-        return 1
+    async def get_payout_ratio(self, week: str) -> float:
+        winning_probability = 1 / len(self.weeks.get(week).get("options"))
+        ratio = (1 - winning_probability) / winning_probability
+        return ratio
 
     async def print_status(self, week: str) -> str:
         currency: str = await string_dict(self.users, listed=True)
@@ -379,12 +367,12 @@ class Commands(discord.Cog, name="Commands"):
             view.add_item(PointButton(self.game, week))
         self.bot.add_view(view)
 
-        print("Starting json and week setup loop")
+        print("Starting update loop")
         while True:
-            await asyncio.sleep(15)
             self.current_week = str(date.today().isocalendar().week)
             await self.game.setup_week(self.current_week)
             await self.json_queue.put(Jsonfy(self.game))
+            await asyncio.sleep(15)
 
     async def bet_on_autocompleter(self, ctx: discord.AutocompleteContext):
         if self.game is None:
