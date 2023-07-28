@@ -6,7 +6,7 @@ import discord
 import json
 import aiofiles
 from tabulate import tabulate
-from typing import Callable, Tuple
+from typing import Callable
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from dotenv import load_dotenv
@@ -294,9 +294,9 @@ class Game:
             if "house" not in self.users:
                 self.users["house"] = 0
             house_ratio = 0.05
-            house_comission = 0
-            house_loss = 0
-            house_gain = 0
+            total_house_comission = 0
+            total_house_loss = 0
+            total_house_gain = 0
             incorrect_bets = 0
             correct_bets = 0
             counter = 0
@@ -307,9 +307,10 @@ class Game:
                     if bet_on == roll:
                         ratio = await self.get_payout_ratio(week=week)
                         payout = points * ratio
-                        payout = points - (points * house_ratio)  # house comission
-                        house_comission += points * house_ratio
-                        house_loss += payout
+                        house_com = payout * house_ratio
+                        payout -= house_com  # house comission
+                        total_house_comission += house_com
+                        total_house_loss += payout
                         self.users[user] += payout
                         correct_bets += 1
                         outcomes[counter] = {
@@ -318,7 +319,7 @@ class Game:
                             "balance": payout,
                         }
                     elif bet_on != roll:
-                        house_gain += points
+                        total_house_gain += points
                         self.users[user] -= points
                         incorrect_bets += 1
                         outcomes[counter] = {
@@ -327,7 +328,7 @@ class Game:
                             "balance": points,
                         }
                     counter += 1
-            self.users["house"] += house_gain - house_loss
+            self.users["house"] += total_house_gain - total_house_loss
             winning_string = ""
             losing_string = ""
             for user, data in outcomes.items():
@@ -343,12 +344,13 @@ class Game:
                 "<:redCross:1126317725497692221> Incorrect bets": incorrect_bets,
                 ":moneybag: Total betting pool": betting_pool,
                 ":moneybag: Winning pool": winner_pool,
-                ":moneybag: Total payouts": house_loss,
-                ":house: Total house comission on payouts": house_comission,
-                ":house: Total fluxbux to house from lost bets": house_gain,
-                ":house: Total fluxbux gone to the house": house_gain - house_loss,
+                ":moneybag: Total payouts": total_house_loss,
+                ":house: Total house comission on payouts": total_house_comission,
+                ":house: Total fluxbux to house from lost bets": total_house_gain,
+                ":house: Total fluxbux gone to the house": total_house_gain
+                - total_house_loss,
             }
-            return await print_return(return_string)
+            return await print_return(f"||{return_string}||")
         except Exception as e:
             traceback.print_exc()
             return e
