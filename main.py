@@ -43,24 +43,35 @@ async def string_dict(
     if table_listed:
         num_columns = max(num_columns, 1)
         if sort:
-            sorted_dict = dict(
+            dictionary = dict(
                 sorted(dictionary.items(), key=lambda item: item[1], reverse=True)
             )
-            items = list(sorted_dict.items())
-        else:
-            items = list(dictionary.items())
-        headers = ["user", "points"] * num_columns
-        rows = []
-        for i in range(0, len(items), num_columns):
-            row = []
-            for j in range(num_columns):
-                if i + j < len(items):
-                    row.extend([items[i + j][0], items[i + j][1]])
-                else:
-                    row.extend(["", ""])
-            rows.append(row)
+        # make dicts for each row
+        dicts = [{} for _ in range(len(dictionary) // num_columns)]
+        # fill dicts with the values
+        for i, (key, value) in enumerate(dictionary.items()):
+            dicts[i % len(dicts)][key] = value
+
+        # Create the table headers
+        headers = ["user", "fluxbux"] * num_columns
+
+        # Transpose the dicts to rows
+        for i, value in enumerate(dicts):
+            dicts[i] = list(dicts[i].items())
+
+        # decouple the tuples in the rows
+        for i, value in enumerate(dicts):
+            dicts[i] = [item for sublist in value for item in sublist]
+
+        # Fill the rows with empty values if needed
+        for i, value in enumerate(dicts):
+            if len(value) < len(headers):
+                dicts[i] += ["", ""] * (len(headers) - len(value))
+
+        rows = dicts
+
     if table_bet_listed:
-        headers = ["user", "bet", "value"]
+        headers = ["user", "bet", "fluxbux"]
         rows = [
             [user, bet, value]
             for user, bets in dictionary.items()
@@ -68,7 +79,7 @@ async def string_dict(
         ]
     return (
         "```\n"
-        + tabulate(rows, headers=headers, tablefmt="simple", numalign="left")
+        + tabulate(rows, headers=headers, tablefmt="outline", numalign="right")
         + "\n```"
     )
 
