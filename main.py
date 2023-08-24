@@ -225,7 +225,7 @@ class Game:
         if self.users[from_user] >= points:
             self.users[from_user] -= points
             self.users[to_user] += points
-            return f"Transferred {points} fluxbux from {from_user} to {to_user}"
+            return f"Transferred {points} fluxbux. From {from_user}({self.users[from_user]}) to {to_user}({self.users[to_user]})."
         return f"{from_user} does not have enough fluxbux"
 
     async def spent_points(self, week, user: str):
@@ -369,6 +369,7 @@ class Game:
     async def get_payout_ratio(self, week: str) -> float:
         winning_probability = 1 / len(self.weeks.get(week).get("options"))
         ratio = (1 - winning_probability) / winning_probability
+        ratio = round(ratio, 2)
         return ratio
 
     async def print_status(self, week: str) -> str:
@@ -533,9 +534,9 @@ class Commands(discord.Cog, name="Commands"):
     )
     @discord.guild_only()
     async def balance(self, ctx: discord.ApplicationContext):
-        await ctx.defer()
+        await ctx.defer(ephemeral=True)
         response = await self.game.print_user_balance(ctx.user.name)
-        await ctx.respond(response, ephemeral=True)
+        await ctx.respond(response)
 
     @discord.slash_command(
         name="results",
@@ -587,7 +588,7 @@ class Commands(discord.Cog, name="Commands"):
 
     @discord.slash_command(
         name="remove_bet",
-        description="Bet on a person",
+        description="Remove a bet you made",
         guild_ids=GUILDS,
     )
     @discord.option(
@@ -652,7 +653,7 @@ class Commands(discord.Cog, name="Commands"):
     # command to transfer fluxbux from the user who runs the command to another user
     @discord.slash_command(
         name="transfer",
-        description="Transfer fluxbux to another user",
+        description="Transfer your fluxbux to another user",
         guild_ids=GUILDS,
     )
     @discord.option(
@@ -715,11 +716,11 @@ class PointButton(discord.ui.Button):
         game: Game = self.game
         week = str(self.custom_id)
         time_diff = datetime.now(timezone.utc) - interaction.message.created_at
-        four_hours = timedelta(hours=6)
+        duration = timedelta(hours=24)
 
-        if time_diff > four_hours:
+        if time_diff > duration:
             await interaction.response.send_message(
-                "It's been more than 6 hours, this is now invalid", ephemeral=True
+                "It's been more than 24 hours, this is now invalid", ephemeral=True
             )
             return
 
