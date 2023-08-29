@@ -251,7 +251,6 @@ class Game:
             await self.update_pool(week)
             return f"Removed your bet on {bet_on}"
         except Exception:
-            traceback.print_exc()
             return f"Failed to remove bet on {bet_on}"
 
     async def place_bet(self, week: str, user: str, bet_on: str, points: int):
@@ -271,6 +270,17 @@ class Game:
             # Check if bet_on is an option
             if bet_on not in self.weeks.get(week).get("options", ""):
                 return f"{bet_on} is not a valid user to bet on"
+            # Count the amount of unique bets the user has made
+            if user in self.weeks.get(week).get("bets"):
+                unique_bets = len(
+                    set(self.weeks.get(week).get("bets").get(user).keys())
+                )
+                options = len(set(self.weeks.get(week).get("options")))
+                if options % 2 == 1:
+                    options += 1
+                threshold = options / 2
+                if unique_bets >= threshold:
+                    return f"{user} has made too many bets"
             # Add your user bet if it doesn't exist
             if user not in self.weeks.get(week).get("bets"):
                 self.weeks[week]["bets"][user] = {}
@@ -284,7 +294,9 @@ class Game:
             await self.update_pool(week)
 
             ratio = await self.get_payout_ratio(week=week)
-            return_string = f"**{user}** bet **{points}** fluxbux on **{bet_on}** for a **{ratio}** payout ratio on week {week}"
+            total_bets = sum(self.weeks.get(week).get("bets").get(user).values())
+            percentage = round((total_bets / self.users[user]) * 100, 2)
+            return_string = f"**{user}** bet **{points}** fluxbux on **{bet_on}** for a **{ratio}** payout ratio on week {week}.\nYour percentage so far is **{percentage}%** of your fluxbux. The threshold is **10%**."
             return await print_return(return_string)
         except Exception as e:
             traceback.print_exc()
@@ -304,21 +316,53 @@ class Game:
                 self.weeks[week]["betting_pool"][roll] = 0
             if "house" not in self.users:
                 self.users["house"] = 0
-            house_ratio = 0.05
             total_house_comission = 0
             total_house_loss = 0
             total_house_gain = 0
+            tax_pool = 0
+            taxed = []
             incorrect_bets = 0
             correct_bets = 0
             counter = 0
             outcomes = {}
-            # Check if week exists in weeks dictionary
+            for user in self.users:
+                if user == "house":
+                    continue
+                if user not in self.weeks.get(week).get("bets"):
+                    tax = round(self.users[user] * 0.3)
+                    tax_pool += tax
+                    self.users[user] -= tax
+                    taxed.append(user)
+                    if user == "rickywl":
+                        print(tax)
+                    outcomes[counter] = {
+                        "user": user,
+                        "outcome": "taxed",
+                        "balance": tax,
+                    }
+                counter += 1
+
             for user, bets in self.weeks.get(week).get("bets").items():
+                total_bets = sum(bets.values())
+                threshhold = 0.1 * self.users[user]
+                if total_bets <= threshhold:
+                    difference = round(threshhold - total_bets)
+                    tax = difference
+                    tax_pool += tax
+                    self.users[user] -= tax
+                    taxed.append(user)
+                    outcomes[counter] = {
+                        "user": user,
+                        "outcome": "taxed",
+                        "balance": tax,
+                    }
+                    counter += 1
+
                 for bet_on, points in bets.items():
                     if bet_on == roll:
                         ratio = await self.get_payout_ratio(week=week)
-                        payout = points * ratio
-                        house_com = payout * house_ratio
+                        payout = round(points * ratio)
+                        house_com = round(payout * 0.05)
                         payout -= house_com  # house comission
                         total_house_comission += house_com
                         total_house_loss += payout
@@ -339,16 +383,39 @@ class Game:
                             "balance": points,
                         }
                     counter += 1
+
+            if taxed != []:
+                bets = list(self.weeks.get(week).get("bets").keys())
+                # filter out taxed users
+                bets = [user for user in bets if user not in taxed]
+                cut = round(tax_pool / len(bets))
+                for user in bets:
+                    self.users[user] += cut
+                    outcomes[counter] = {
+                        "user": user,
+                        "outcome": "tax return",
+                        "balance": cut,
+                    }
+                    counter += 1
+
             self.users["house"] += total_house_gain - total_house_loss
+
             winning_string = ""
             losing_string = ""
+            taxed_string = ""
+            tax_return_string = ""
             for user, data in outcomes.items():
                 if data["outcome"] == "won":
                     winning_string += f"- **{data['user']}** {data['outcome']} **{data['balance']}** fluxbux\n"
-                else:
+                elif data["outcome"] == "lost":
                     losing_string += f"- **{data['user']}** {data['outcome']} **{data['balance']}** fluxbux\n"
-            winner_id = self.user_map.get(roll, roll)
-            return_string = f"The winner is <@{winner_id}>\n**Gain:**\n{winning_string}**Loss**\n{losing_string}"
+                elif data["outcome"] == "taxed":
+                    taxed_string += f"- **{data['user']}** {data['outcome']} **{data['balance']}** fluxbux\n"
+                elif data["outcome"] == "tax return":
+                    tax_return_string += f"- **{data['user']}** {data['outcome']} **{data['balance']}** fluxbux\n"
+
+            winner_id = self.user_map.get(roll.lower(), roll)
+            return_string = f"The winner is <@{winner_id}>\n**Gain:**\n{winning_string}**Loss**\n{losing_string}**Taxed:**\n{taxed_string}**Tax return:**\n{tax_return_string}"
             self.weeks[week]["result"] = {
                 ":tada: Winner": roll,
                 ":white_check_mark: Correct bets": correct_bets,
@@ -356,6 +423,8 @@ class Game:
                 ":moneybag: Total betting pool": betting_pool,
                 ":moneybag: Winning pool": winner_pool,
                 ":moneybag: Total payouts": total_house_loss,
+                ":moneybag: Taxes": tax_pool,
+                ":moneybag: Taxed players": len(taxed),
                 ":house: Total house comission on payouts": total_house_comission,
                 ":house: Total fluxbux to house from lost bets": total_house_gain,
                 ":house: Total fluxbux gone to the house": total_house_gain
@@ -374,7 +443,7 @@ class Game:
 
     async def print_status(self, week: str) -> str:
         currency: str = await string_dict(
-            self.users, table_listed=True, sort=True, num_columns=3
+            self.users, table_listed=True, sort=True, num_columns=2
         )
         betting_pool: str = await string_dict(
             self.weeks.get(week, {}).get("betting_pool", {}),
@@ -394,10 +463,16 @@ class Game:
             return f"No spin for week {week}"
         return f"The spin for week {week} is:\n{await string_dict(self.weeks[week]['result'], listed=True)}"
 
-    async def print_user_balance(self, user: str) -> str:
+    async def print_user_balance(self, user: str, week: str) -> str:
         if user not in self.users:
             return f"{user} is not a user"
-        return f"{user} has {self.users[user]} fluxbux"
+        points = self.users[user]
+        total_bets = sum(self.weeks.get(week).get("bets").get(user).values())
+        percentage = round((total_bets / self.users[user]) * 100, 2)
+        bets = ""
+        for bet, bet_points in list(self.weeks.get(week).get("bets").get(user).items()):
+            bets += f"- **{bet}**: **{bet_points}**\n"
+        return f"You have **{points}** fluxbux and have bet **{percentage}%** of your fluxbux.\n{bets}"
 
 
 class Commands(discord.Cog, name="Commands"):
@@ -535,7 +610,7 @@ class Commands(discord.Cog, name="Commands"):
     @discord.guild_only()
     async def balance(self, ctx: discord.ApplicationContext):
         await ctx.defer(ephemeral=True)
-        response = await self.game.print_user_balance(ctx.user.name)
+        response = await self.game.print_user_balance(ctx.user.name, self.current_week)
         await ctx.respond(response)
 
     @discord.slash_command(
@@ -603,7 +678,7 @@ class Commands(discord.Cog, name="Commands"):
         ctx: discord.ApplicationContext,
         user: str,
     ):
-        await ctx.defer()
+        await ctx.defer(ephemeral=True)
         response = await self.game.remove_bet(self.current_week, ctx.user.name, user)
         await ctx.respond(response)
 
@@ -700,6 +775,131 @@ class Commands(discord.Cog, name="Commands"):
         await ctx.defer()
         await self.game.link(user, discord_user)
         await ctx.respond(f"Linked {user} and {discord_user.name}")
+
+    # make a help command
+    @discord.slash_command(
+        name="help",
+        description="Get a list of commands",
+        guild_ids=GUILDS,
+    )
+    @discord.guild_only()
+    @discord.option(
+        name="submenu",
+        description="Which submenu to show",
+        choices=["commands", "betting", "payout"],
+        required=True,
+    )
+    async def help(self, ctx: discord.ApplicationContext, submenu: str):
+        await ctx.defer(ephemeral=True)
+
+        if submenu == "commands":
+            embed = discord.Embed(
+                title="Fluxbux Commands",
+                description="Commands for Fluxbux",
+                color=discord.Color.blurple(),
+            )
+            embed.add_field(
+                name="bet",
+                value="Bet on someone",
+                inline=False,
+            )
+            embed.add_field(
+                name="remove_bet",
+                value="Remove a bet on someone",
+                inline=False,
+            )
+            embed.add_field(
+                name="balance",
+                value="Get your balance",
+                inline=False,
+            )
+            embed.add_field(
+                name="transfer",
+                value="Transfer fluxbux to another user",
+                inline=False,
+            )
+            embed.add_field(
+                name="status",
+                value="Get the status of the current week or given week",
+                inline=False,
+            )
+            embed.add_field(
+                name="results",
+                value="Get the results of the current week or given week",
+                inline=False,
+            )
+            embed.add_field(
+                name="help",
+                value="Get a list of commands, this command",
+                inline=False,
+            )
+            # add divider for admin commands
+            embed.add_field(
+                name="================",
+                value="",
+                inline=False,
+            )
+            embed.add_field(
+                name="set",
+                value="Set the current week",
+                inline=False,
+            )
+            embed.add_field(
+                name="giveaway",
+                value="Make a message which gives away fluxbux for 24 hours",
+                inline=False,
+            )
+            embed.add_field(
+                name="payout",
+                value="Payout based on who won",
+                inline=False,
+            )
+            embed.add_field(
+                name="give",
+                value="Give fluxbux to someone",
+                inline=False,
+            )
+            embed.add_field(
+                name="link",
+                value="Link a user to a discord user",
+                inline=False,
+            )
+        if submenu == "betting":
+            embed = discord.Embed(
+                title="Bet Command",
+                description="Explanation for how betting works",
+                color=discord.Color.blurple(),
+            )
+            embed.add_field(
+                name="bet",
+                value=(
+                    "When you bet on someone, it gets added to a list of bets for that week.\n"
+                    "You can't bet more fluxbux than you own at any time.\n"
+                    "You can bet on multiple people at a time, but not on the same person twice.\n"
+                    "You need to bet at least 10% of your fluxbux to not get taxed.\n"
+                    "If you don't bet you'll get taxed 30% of your fluxbux."
+                ),
+                inline=False,
+            )
+        if submenu == "payout":
+            embed = discord.Embed(
+                title="Payout Command",
+                description="Explanation for how payout works",
+                color=discord.Color.blurple(),
+            )
+            embed.add_field(
+                name="payout",
+                value=(
+                    "The winner of the week is the one who's spun on the weekly wheel\n"
+                    "The commands runs all the bets for the week\n"
+                    "The payout is based on the ratio of the week which is based on the amount of options\n"
+                    "Any user who hasn't bet yet gets taxed 30% of their fluxbux\n"
+                    "Any user who hasn't bet at least 10% of their fluxbux gets taxed up to 10% taking their current bets into account"
+                ),
+                inline=False,
+            )
+
+        await ctx.respond(embed=embed)
 
 
 class PointButton(discord.ui.Button):
