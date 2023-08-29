@@ -219,14 +219,16 @@ class Game:
                 return True
             return False
 
-    async def transfer_points(self, from_user, to_user, points):
+    async def transfer_points(self, from_user, to_user, points, week):
         await self.add_user(from_user)
         await self.add_user(to_user)
-        if self.users[from_user] >= points:
-            self.users[from_user] -= points
-            self.users[to_user] += points
-            return f"Transferred {points} fluxbux. From {from_user}({self.users[from_user]}) to {to_user}({self.users[to_user]})."
-        return f"{from_user} does not have enough fluxbux"
+        if (await self.spent_points(week, from_user) + points) > self.users.get(
+            from_user, 0
+        ):
+            return f"{from_user} does not have enough fluxbux to transfer\nTransfering and running the bet might net you negative fluxbux."
+        self.users[from_user] -= points
+        self.users[to_user] += points
+        return f"Transferred {points} fluxbux. From {from_user}({self.users[from_user]}) to {to_user}({self.users[to_user]})."
 
     async def spent_points(self, week, user: str):
         try:
@@ -750,7 +752,9 @@ class Commands(discord.Cog, name="Commands"):
         fluxbux: int,
     ):
         await ctx.defer()
-        response = await self.game.transfer_points(ctx.user.name, user, fluxbux)
+        response = await self.game.transfer_points(
+            ctx.user.name, user, fluxbux, self.current_week
+        )
         await ctx.respond(response)
 
     @discord.slash_command(
