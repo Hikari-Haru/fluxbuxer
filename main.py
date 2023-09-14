@@ -41,6 +41,8 @@ async def string_dict(
                 string += f"- **{user}**: **{bet}** for **{value}** fluxbux\n"
         return string
     if table_listed:
+        if len(dictionary) == 1:
+            num_columns = 1
         num_columns = max(num_columns, 1)
         if sort:
             dictionary = dict(
@@ -272,17 +274,14 @@ class Game:
             # Check if bet_on is an option
             if bet_on not in self.weeks.get(week).get("options", ""):
                 return f"{bet_on} is not a valid user to bet on"
-            # Count the amount of unique bets the user has made
             if user in self.weeks.get(week).get("bets"):
-                unique_bets = len(
-                    set(self.weeks.get(week).get("bets").get(user).keys())
-                )
+                bets = len(set(self.weeks.get(week).get("bets").get(user).keys()))
                 options = len(set(self.weeks.get(week).get("options")))
                 if options % 2 == 1:
                     options += 1
-                threshold = options / 2
-                if unique_bets >= threshold:
+                if bets >= (options / 2):
                     return f"{user} has made too many bets"
+
             # Add your user bet if it doesn't exist
             if user not in self.weeks.get(week).get("bets"):
                 self.weeks[week]["bets"][user] = {}
@@ -299,7 +298,7 @@ class Game:
             total_bets = sum(self.weeks.get(week).get("bets").get(user).values())
             percentage = round((total_bets / self.users[user]) * 100, 2)
             return_string = f"**{user}** bet **{points}** fluxbux on **{bet_on}** for a **{ratio}** payout ratio on week {week}.\nYour percentage so far is **{percentage}%** of your fluxbux. The threshold is **10%**."
-            return await print_return(return_string)
+            return return_string
         except Exception as e:
             traceback.print_exc()
             return e
@@ -469,7 +468,8 @@ class Game:
         if user not in self.users:
             return f"{user} is not a user"
         points = self.users[user]
-        total_bets = sum(self.weeks.get(week).get("bets").get(user).values())
+        user_bets = self.weeks.get(week).get("bets").get(user)
+        total_bets = sum(user_bets.values()) if user_bets else 0
         percentage = round((total_bets / self.users[user]) * 100, 2)
         bets = ""
         for bet, bet_points in list(self.weeks.get(week).get("bets").get(user).items()):
