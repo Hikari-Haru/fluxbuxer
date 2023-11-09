@@ -472,8 +472,9 @@ class Game:
         total_bets = sum(user_bets.values()) if user_bets else 0
         percentage = round((total_bets / self.users[user]) * 100, 2)
         bets = ""
-        for bet, bet_points in list(self.weeks.get(week).get("bets").get(user).items()):
-            bets += f"- **{bet}**: **{bet_points}**\n"
+        if user in self.weeks.get(week).get("bets"):
+            for bet, bet_points in list(self.weeks.get(week).get("bets").get(user).items()):
+                bets += f"- **{bet}**: **{bet_points}**\n"
         return f"You have **{points}** fluxbux and have bet **{percentage}%** of your fluxbux.\n{bets}"
 
 
